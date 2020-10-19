@@ -9,6 +9,10 @@
 #include <assert.h>
 #include <errno.h>
 #include <algorithm>
+#include <vector>
+#include <sys/time.h>
+#include <sys/resource.h>
+#include <time.h>
 #include "omp.h"
 #include "htslib/sam.h"
 #include "common.h"
@@ -1357,13 +1361,13 @@ void loadReadIntoGraph(alignedRead* theRead, DeBruijnGraph* theGraph, int minQua
 }
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void loadBAMDataIntoGraph(DeBruijnGraph* theGraph, bamReadBuffer* readBuffer, int assembleBadReads, int assembleBrokenPairs, int minQual, int kmerSize){
+void loadBAMDataIntoGraph(DeBruijnGraph* theGraph, struct alignedRead* start, struct alignedRead* end, int assembleBadReads, int assembleBrokenPairs, int minQual, int kmerSize){
     /*
     Load k-mers from the specified BAM file into the graph. K-mers containing
     Ns are ignored, as are k-mers containing low-quality bases.
     */
-    alignedRead* readStart = readBuffer->reads.windowStart;
-    alignedRead* readEnd = readBuffer->reads.windowEnd;
+    alignedRead* readStart = start;
+    alignedRead* readEnd = end;
 
     while (readStart != readEnd) {
         if (!Read_IsQCFail(readStart)) {
@@ -1376,7 +1380,7 @@ void loadBAMDataIntoGraph(DeBruijnGraph* theGraph, bamReadBuffer* readBuffer, in
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void assembleReadsAndDetectVariants(char* chrom, int assemStart, int assemEnd, int refStart, int refEnd, bamReadBuffer* readBuffers, char* refSeq) {
+void assembleReadsAndDetectVariants(int refStart, int refEnd, struct alignedRead* windowStart, struct alignedRead* windowEnd, char* refSeq) {
     /*
     Below are filled from default Platypus options
     */
@@ -1389,15 +1393,11 @@ void assembleReadsAndDetectVariants(char* chrom, int assemStart, int assemEnd, i
     int kmerSize = 15;
     int minWeight = minReads*minQual;
     int nBuckets = 5000;
-    int verbosity = 3;
 
-    if (verbosity >= 3) {
-        fprintf(stderr, "Assembling region %s:%d-%d\n", chrom, assemStart, assemEnd);
-    }
     DeBruijnGraph* theGraph = createDeBruijnGraph(kmerSize, nBuckets);
 
     loadReferenceIntoGraph(theGraph, refSeq, refStart, kmerSize);
-    loadBAMDataIntoGraph(theGraph, readBuffers, assembleBadReads, assembleBrokenPairs, minQual, kmerSize);
+    loadBAMDataIntoGraph(theGraph, windowStart, windowEnd, assembleBadReads, assembleBrokenPairs, minQual, kmerSize);
 
     // If this is true, then don't allow cycles in the graph.
     /*
@@ -1476,38 +1476,15 @@ int main(int argc,char** argv){
 
     // my structure for a readbuffer (see common.h)
     struct bamReadBuffer readBuffer;
-    readBuffer.reads.__capacity = MAX_READS_IN_REGION;
-    readBuffer.reads.__size = 0;
-    readBuffer.reads.array = (struct alignedRead*) malloc(sizeof(struct alignedRead) * MAX_READS_IN_REGION);
-    readBuffer.reads.windowStart = readBuffer.reads.array;
-    readBuffer.reads.windowEnd = readBuffer.reads.array;
-    readBuffer.reads.__longestRead = 0;
-    
-    int numReadsInRegion = 0;
 
-    // repeat until all reads in the region are retrieved
-	while (sam_itr_next(in, iter, b) >= 0) {
-        getRead(readBuffer.reads.windowEnd, b); // copy the current read to the myread structure. See common.c for information
-        // printRead(readBuffer.reads.windowEnd, header);  // print data in structure. See common.c for information
-        numReadsInRegion++;
-        int readLength = readBuffer.reads.windowEnd->end - readBuffer.reads.windowEnd->pos;
-        if (readLength > readBuffer.reads.__longestRead) {
-            readBuffer.reads.__longestRead = readLength;
-        }
-        readBuffer.reads.__size++;
-        readBuffer.reads.windowEnd++;
-         
-        if (readBuffer.reads.__size == readBuffer.reads.__capacity) {
-            readBuffer.reads.__capacity *= 2;
-            readBuffer.reads.array = (struct alignedRead*) realloc(readBuffer.reads.array, sizeof(struct alignedRead) * readBuffer.reads.__capacity);
-            readBuffer.reads.windowStart = readBuffer.reads.array;
-            readBuffer.reads.windowEnd = readBuffer.reads.windowStart + readBuffer.reads.__size;
-            fprintf(stderr,"Buffer doubled\n");
-            // exit(EXIT_FAILURE);
-        }
-	}
-    
-    fprintf(stderr, "Number of reads in region: %d\n", numReadsInRegion);
+    for (int i = 0; i < numThreads; i++) {
+        readBuffer.reads.__capacity = MAX_READS_IN_REGION;
+        readBuffer.reads.__size = 0;
+        readBuffer.reads.array = (struct alignedRead*) malloc(sizeof(struct alignedRead) * MAX_READS_IN_REGION);
+        readBuffer.reads.windowStart = readBuffer.reads.array;
+        readBuffer.reads.windowEnd = readBuffer.reads.array;
+        readBuffer.reads.__longestRead = 0;
+    }
     
     char* reg = argv[2];
     int beg, end;
@@ -1525,22 +1502,85 @@ int main(int argc,char** argv){
         beg = 0; end = INT_MAX;
     }
 
-    // prepare assembly parameters
+    struct timeval start_time, end_time;
+    double runtime = 0;
+
+    std::vector<Batch> batches;
+
+    // extract reads from region    
+    while (sam_itr_next(in, iter, b) >= 0) {
+        getRead(readBuffer.reads.windowEnd, b); // copy the current read to the myread structure. See common.c for information
+        // printRead(readBuffer.reads.windowEnd, header);  // print data in structure. See common.c for information;
+        int readLength = readBuffer.reads.windowEnd->end - readBuffer.reads.windowEnd->pos;
+        if (readLength > readBuffer.reads.__longestRead) {
+            readBuffer.reads.__longestRead = readLength;
+        }
+        readBuffer.reads.__size++;
+        readBuffer.reads.windowEnd++;
+            
+        if (readBuffer.reads.__size == readBuffer.reads.__capacity) {
+            readBuffer.reads.__capacity *= 2;
+            readBuffer.reads.array = (struct alignedRead*) realloc(readBuffer.reads.array, sizeof(struct alignedRead) * readBuffer.reads.__capacity);
+            readBuffer.reads.windowStart = readBuffer.reads.array;
+            readBuffer.reads.windowEnd = readBuffer.reads.windowStart + readBuffer.reads.__size;
+            fprintf(stderr,"Buffer doubled. Old size = %d, New size = %d\n", readBuffer.reads.__size, readBuffer.reads.__capacity);
+        }
+    }
+
+    // process reads
     const int assemblyRegionSize = 1500;
     int assemRegionShift = std::max(100, std::min(1000, assemblyRegionSize / 2));
-    for (int i = beg; i < end; i += assemRegionShift) {
-        int assemStart = i;
+    for (int k = beg; k < end; k += assemRegionShift) {
+        int assemStart = k;
         int assemEnd = std::min(assemStart + assemblyRegionSize, end);
         int refStart = std::max(0, assemStart - assemblyRegionSize);
         int refEnd = assemEnd + assemblyRegionSize;
         int len;
         char* ref = faidx_fetch_seq(fai, tmp, refStart, refEnd - 1, &len);
         setWindowPointers(&readBuffer.reads, assemStart, assemEnd);
-        assembleReadsAndDetectVariants(tmp, assemStart, assemEnd, refStart, refEnd, &readBuffer, ref);
+        Batch b;
+        b.offset = k;
+        b.ref = ref;
+        b.windowStart = readBuffer.reads.windowStart;
+        b.windowEnd = readBuffer.reads.windowEnd;
+        batches.push_back(b);
     }
 
+#pragma omp parallel num_threads(numThreads)
+{
+    int tid = omp_get_thread_num();
+    if (tid == 0) {
+        fprintf(stderr, "Found %d batches. Running with threads: %d\n", batches.size(), numThreads);
+    }
+}
+
+    gettimeofday(&start_time, NULL);
+
+#pragma omp parallel num_threads(numThreads)
+{
+    int tid = omp_get_thread_num();
+    #pragma omp for schedule(dynamic, 1)
+        for (int i = 0; i < batches.size(); i++) {
+            int assemStart = batches[i].offset;
+            int assemEnd = std::min(assemStart + assemblyRegionSize, end);
+            int refStart = std::max(0, assemStart - assemblyRegionSize);
+            int refEnd = assemEnd + assemblyRegionSize;
+            int verbosity = 2;
+            if (verbosity >= 3) {
+                fprintf(stderr, "Assembling region %s:%d-%d, tid = %d\n", tmp, assemStart, assemEnd, tid);
+            }
+            assembleReadsAndDetectVariants(refStart, refEnd, batches[i].windowStart, batches[i].windowEnd, batches[i].ref);
+        }
+}
+    gettimeofday(&end_time, NULL);
+    runtime += (end_time.tv_sec - start_time.tv_sec)*1e6 + end_time.tv_usec - start_time.tv_usec;
+
     // wrap up
+    for (int i = 0; i < batches.size(); i++) {
+        free(batches[i].ref);
+    }
     free(readBuffer.reads.array);
+
     if (tmp != tmp_a) {
         free(tmp);
     }
@@ -1550,6 +1590,8 @@ int main(int argc,char** argv){
 	bam_hdr_destroy(header);
 	sam_close(in);
     fai_destroy(fai);
+
+    fprintf(stderr, "Kernel runtime: %.2f s\n", runtime*1e-6);
     
     return 0;
 }

@@ -110,3 +110,10 @@ int bisectReadsLeft(struct alignedRead* reads, int testPos, int nReads, int test
 //Is this efficient? Should try optimising   
 inline char _getBase(uint8_t *s, int i);
 inline int Read_IsQCFail(struct alignedRead* theRead);
+
+typedef struct {
+    struct alignedRead* windowStart;
+    struct alignedRead* windowEnd;
+    char* ref;
+    int offset;
+} Batch;

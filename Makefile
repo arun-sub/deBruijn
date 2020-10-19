@@ -1,5 +1,5 @@
 CXX     = g++
-LIBS = -Lhtslib -lz -lm -lbz2 -llzma -lpthread 
+LIBS = -Lhtslib -lz -lm -lbz2 -llzma -lpthread -fopenmp
 CXXFLAGS   = -g -Wall -O2 -fopenmp
 INC = -Ihtslib
 
