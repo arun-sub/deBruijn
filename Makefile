@@ -1,11 +1,10 @@
-CC     = gcc
+CXX     = g++
 LIBS = -Lhtslib -lz -lm -lbz2 -llzma -lpthread 
-CFLAGS   = -g -Wall -O2
+CXXFLAGS   = -g -Wall -O2 -fopenmp
 INC = -Ihtslib
 
-all: debruijn.c common.c common.h
-	$(CC) debruijn.c common.c htslib/libhts.a $(CLFLAGS) $(INC) $(LIBS) -o debruijn -g
-
+all: debruijn.cpp common.cpp common.h
+	$(CXX) debruijn.cpp common.cpp htslib/libhts.a $(CXXFLAGS) $(INC) $(LIBS) -o debruijn
 
 clean: 
 	rm debruijn

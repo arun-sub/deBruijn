@@ -4,7 +4,7 @@
 #define MAX_READNAME_LEN 100  //The maximun size of a read name (qname size in bytes +1 )
 #define MAX_READ_LEN 151      //maximum size of a read (number of bases +1)   
 #define MAX_N_CIGAR 16        //no idea what this number of CIGAR ops mean at the moment  
-
+#define MAX_READS_IN_REGION 5000000 // Maximum number of reads per BAM region
 
 /*********************** Some error checks *********************/
 /*Die on error. Print the error and exit if the return value of the previous function NULL*/
@@ -58,7 +58,7 @@ struct ReadArray{
     struct alignedRead* windowEnd;
     int __size;
     int __capacity;
-    //int __longestRead;
+    int __longestRead;
 };
 
 
@@ -84,8 +84,8 @@ struct bamReadBuffer{
     // struct alignedRead* lastRead;
     // char sample;
     struct ReadArray reads;
-    // struct ReadArray badReads;
-    // struct ReadArray brokenMates;
+    struct ReadArray badReads;
+    struct ReadArray brokenMates;
 
 };
 
@@ -98,14 +98,15 @@ struct alignedRead* getRead(struct alignedRead*  theRead, bam1_t *b/*, int store
 
 /*A function that prints a read to the stdout. First call getRead function and then this*/
 void printRead(struct alignedRead* theRead, bam_hdr_t *header);
-   
 
-//an internally used function   
-inline char _getBase(uint8_t *s, int i);   
+void setWindowPointers(struct ReadArray* array, int start, int end);
+int bisectReadsLeft(struct alignedRead* reads, int testPos, int nReads, int testMatePos = 0);
 
-
-#if !defined(BAM_FQCFAIL) 
+#ifndef BAM_FQCFAIL 
     #define BAM_FQCFAIL = 512      // QC failure
 #endif
-    
+
+//an internally used function
+//Is this efficient? Should try optimising   
+inline char _getBase(uint8_t *s, int i);
 inline int Read_IsQCFail(struct alignedRead* theRead);

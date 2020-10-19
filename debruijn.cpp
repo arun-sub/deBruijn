@@ -1400,6 +1400,7 @@ void assembleReadsAndDetectVariants(char* chrom, int assemStart, int assemEnd, i
     loadBAMDataIntoGraph(theGraph, readBuffers, assembleBadReads, assembleBrokenPairs, minQual, kmerSize);
 
     // If this is true, then don't allow cycles in the graph.
+    /*
     while (detectCyclesInGraph_Recursive(theGraph, minWeight)) {
         if (kmerSize > 50) {
             if (verbosity >= 3) {
@@ -1418,6 +1419,7 @@ void assembleReadsAndDetectVariants(char* chrom, int assemStart, int assemEnd, i
             loadBAMDataIntoGraph(theGraph, readBuffers, assembleBadReads, assembleBrokenPairs, minQual, kmerSize);
         }
     }
+    */
     destroyDeBruijnGraph(theGraph);
     //logger.debug("Finished assembling region %s:%s-%s" %(chrom, start, end))
     //logger.debug("Found vars %s" %(theVars))
@@ -1497,9 +1499,9 @@ int main(int argc,char** argv){
          
         if (readBuffer.reads.__size == readBuffer.reads.__capacity) {
             readBuffer.reads.__capacity *= 2;
-            readBuffer.reads.array = (struct alignedRead*) realloc(readBuffer.reads.array, readBuffer.reads.__capacity);
+            readBuffer.reads.array = (struct alignedRead*) realloc(readBuffer.reads.array, sizeof(struct alignedRead) * readBuffer.reads.__capacity);
             readBuffer.reads.windowStart = readBuffer.reads.array;
-            readBuffer.reads.windowEnd = readBuffer.reads.array + (size_t)readBuffer.reads.__size;
+            readBuffer.reads.windowEnd = readBuffer.reads.windowStart + readBuffer.reads.__size;
             fprintf(stderr,"Buffer doubled\n");
             // exit(EXIT_FAILURE);
         }
