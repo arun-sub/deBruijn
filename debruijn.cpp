@@ -18,6 +18,12 @@
 #include "common.h"
 #include "htslib/faidx.h"
 
+#define VTUNE_ANALYSIS 1
+
+#ifdef VTUNE_ANALYSIS
+    #include <ittnotify.h>
+#endif
+
 inline char _getBase(uint8_t *s, int i) {
     char* baseLookup = "=ACMGRSVTWYHKDBN";
     return baseLookup[bam_seqi(s, i)];
@@ -1428,7 +1434,9 @@ void assembleReadsAndDetectVariants(int refStart, int refEnd, struct alignedRead
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 int main(int argc,char** argv){
-    
+#ifdef VTUNE_ANALYSIS
+    __itt_pause();
+#endif
     // check args
     if (argc != 5) {
         fprintf(stderr, "Usage %s file.bam chr:start-stop ref.fa n_threads\n", argv[0]);
@@ -1555,7 +1563,9 @@ int main(int argc,char** argv){
 }
 
     gettimeofday(&start_time, NULL);
-
+#ifdef VTUNE_ANALYSIS
+    __itt_resume();
+#endif
 #pragma omp parallel num_threads(numThreads)
 {
     int tid = omp_get_thread_num();
@@ -1572,6 +1582,9 @@ int main(int argc,char** argv){
             assembleReadsAndDetectVariants(refStart, refEnd, batches[i].windowStart, batches[i].windowEnd, batches[i].ref);
         }
 }
+#ifdef VTUNE_ANALYSIS
+    __itt_pause();
+#endif
     gettimeofday(&end_time, NULL);
     runtime += (end_time.tv_sec - start_time.tv_sec)*1e6 + end_time.tv_usec - start_time.tv_usec;
 
